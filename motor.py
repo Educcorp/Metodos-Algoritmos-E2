@@ -334,7 +334,7 @@ def nombre_celda(i, j, letra="C"):
 #     salida      -> lista de textos y tablas que se muestran en pantalla
 #     c           -> tabla de costos cij (copia)
 #     a, b        -> ofertas ai y demandas bj (copias)
-#     beneficio   -> tabla original de beneficios (en maximización)
+#     beneficio   -> tabla original de beneficios (en maximización; M vale -M)
 #     finitos     -> beneficios que no son M (para buscar el mayor)
 #     mayor       -> beneficio mayor de la tabla
 #     oferta_total, demanda_total -> suma(ai) y suma(bj)
@@ -348,7 +348,7 @@ def preparar(prob, salida):
     beneficio = None
 
     if prob["sentido"] == "max":
-        beneficio = [list(fila) for fila in c]
+        beneficio = [[v if v.m == 0 else -v for v in fila] for fila in c]   # M -> -M
         finitos = [v for fila in c for v in fila if v.m == 0]
         mayor = max(finitos) if finitos else ExprM()
         # M en maximización = ruta inaceptable: beneficio -M -> costo mayor + M.
@@ -438,6 +438,11 @@ def foto_tabla(t, **extra):
     return foto
 
 
+def entre_parentesis(v):
+    """'(M-2)' o '(-4)' si lleva signo o dos términos; si no, '12' o 'M'."""
+    return "(%s)" % v if v < 0 or (v.m != 0 and v.c != 0) else str(v)
+
+
 def costo_total(t, tabla=None):
     """Devuelve (Z, texto 'x11*c11 + x12*c12 + ... = Z') de las rutas usadas.
 
@@ -448,7 +453,7 @@ def costo_total(t, tabla=None):
     for i, j in t.usadas():
         if t.x[i][j] != 0:
             z = z + tabla[i][j] * t.x[i][j]
-            terminos.append("%s*%s" % (t.x[i][j], tabla[i][j]))
+            terminos.append("%s*%s" % (t.x[i][j], entre_parentesis(tabla[i][j])))
     return z, "%s = %s" % (" + ".join(terminos) or "0", z)
 
 
@@ -846,13 +851,13 @@ def banquillo(t, salida):
 # =============================================================================
 
 def mas(a, b):
-    """'(0 + 16)' o '(-7 - 4)': escribe la suma ui + vj como en la libreta."""
-    return "(%s %s %s)" % (a, "-" if b < 0 else "+", -b if b < 0 else b)
+    """'(0 + 16)', '(-7 - 4)' o '(0 - (M-5))': la suma ui + vj como en la libreta."""
+    return "(%s %s %s)" % (a, "-" if b < 0 else "+", entre_parentesis(-b) if b < 0 else b)
 
 
 def menos(a, b):
-    """'12 - 0' o '12 - (-4)': escribe la resta cij - ui como en la libreta."""
-    return "%s - %s" % (a, "(%s)" % b if b < 0 else b)
+    """'12 - 0', '12 - (-4)' o '3 - (M-2)': la resta cij - ui como en la libreta."""
+    return "%s - %s" % (a, entre_parentesis(b))
 
 
 def marginales_dimo(t, salida):
@@ -994,13 +999,14 @@ def optimizar(t, salida, paso1, max_iter=100):
 #     t         -> la tabla final
 #     salida    -> lista de textos y tablas que se muestran en pantalla
 #     titulo    -> qué se obtuvo ('SFBI' o 'solución óptima')
+#     optima    -> True sólo si la prueba de optimalidad dijo que es óptima
 #     i, j      -> cada ruta usada
 #     nota      -> aviso si la ruta va a un ficticio o tiene costo M
 #     z         -> costo total;  detalle -> 'x*c + ... = Z'
 #     g         -> beneficio total (sólo en maximización)
 # =============================================================================
 
-def mostrar_resultado(t, salida, titulo):
+def mostrar_resultado(t, salida, titulo, optima=False):
     salida.append("\n" + "=" * 60 + "\nRESULTADO (%s)" % titulo)
     for (i, j) in t.usadas():
         if t.x[i][j] == 0:
@@ -1018,12 +1024,15 @@ def mostrar_resultado(t, salida, titulo):
     if t.sentido == "max":
         g, detalle_g = costo_total(t, t.beneficio)
         salida.append("Costo (tabla convertida):  Z = %s" % detalle)
-        salida.append("BENEFICIO TOTAL MÁXIMO = %s" % detalle_g)
+        salida.append("BENEFICIO TOTAL%s = %s" % (" MÁXIMO" if optima else "", detalle_g))
     else:
         salida.append("COSTO TOTAL = %s" % detalle)
-    if z.m != 0:
+    if z.m != 0 and optima:
         salida.append("Aviso: la solución usa una ruta con costo M; sin esa ruta inaceptable "
                       "el problema no tiene solución factible.")
+    elif z.m != 0:
+        salida.append("Aviso: esta solución usa una ruta con costo M, pero no se ha comprobado "
+                      "que sea óptima; con Banquillo o DIMO se sabe si esa ruta se puede evitar.")
     return z
 
 
@@ -1070,7 +1079,9 @@ def resolver_en(metodo, prob, salida):
     estado = OPTIMOS[metodo][1](t, salida)                       # -> #OPTIMIZAR
     if estado == "limite":
         salida.append("No se llegó al óptimo dentro del máximo de iteraciones.")
-    mostrar_resultado(t, salida, "solución óptima por " + OPTIMOS[metodo][0])
+    optima = estado == "optimo"
+    mostrar_resultado(t, salida, ("solución óptima por " if optima else "solución sin optimizar por ")
+                      + OPTIMOS[metodo][0], optima)
     return t
 
 
